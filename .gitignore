@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+env/
+.venv/
+
+# Environment secrets
+.env
+
+# Database (don't commit your local demo data)
+*.db
+*.sqlite3
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
