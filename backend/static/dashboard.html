@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — RPHMS</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="name">RPHMS</div>
+      <div class="tag">Remote Health Monitoring</div>
+    </div>
+    <nav>
+      <a href="/dashboard.html" class="active">Dashboard</a>
+      <a href="/alerts.html">Alerts</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-name" id="userName">—</div>
+      <button id="logoutBtn">Sign out</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <h1>Patient monitoring</h1>
+        <div class="subtitle">Live vitals, refreshed automatically</div>
+      </div>
+      <button class="btn btn-primary" id="addPatientBtn">+ Register patient</button>
+    </div>
+
+    <div class="disclaimer">
+      For health monitoring and alerting only. This system does not provide medical diagnosis — always consult a qualified healthcare professional for clinical decisions.
+    </div>
+
+    <div class="stat-strip" id="statStrip">
+      <div class="stat-tile">
+        <div class="label">Total patients</div>
+        <div class="value" id="statTotal">—</div>
+      </div>
+      <div class="stat-tile">
+        <div class="label">Devices online</div>
+        <div class="value" id="statOnline">—</div>
+      </div>
+      <div class="stat-tile normal">
+        <div class="label">Normal</div>
+        <div class="value" id="statNormal">—</div>
+      </div>
+      <div class="stat-tile warning">
+        <div class="label">Warning</div>
+        <div class="value" id="statWarning">—</div>
+      </div>
+      <div class="stat-tile critical">
+        <div class="label">Critical</div>
+        <div class="value" id="statCritical">—</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Patients</h2>
+        <span class="subtitle" id="lastUpdated" style="font-size:12px; color:var(--ink-muted);"></span>
+      </div>
+      <div class="panel-body">
+        <table>
+          <thead>
+            <tr>
+              <th>Patient</th>
+              <th>Device</th>
+              <th>Heart rate</th>
+              <th>SpO₂</th>
+              <th>Temperature</th>
+              <th>Status</th>
+              <th>Last reading</th>
+            </tr>
+          </thead>
+          <tbody id="patientTableBody">
+            <!-- rows injected by JS -->
+          </tbody>
+        </table>
+        <div class="empty-state" id="emptyState" style="display:none;">
+          No patients registered yet. Click "Register patient" to add one.
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" id="alertsPanel">
+      <div class="panel-header">
+        <h2>Recent alerts</h2>
+      </div>
+      <div class="panel-body" id="alertsList">
+        <div class="empty-state">No alerts yet.</div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<!-- Register patient modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h2>Register patient</h2>
+    <div class="form-error" id="patientFormError"></div>
+    <form id="patientForm">
+      <div class="form-row">
+        <div class="field">
+          <label for="pName">Full name</label>
+          <input type="text" id="pName" required>
+        </div>
+        <div class="field">
+          <label for="pAge">Age</label>
+          <input type="number" id="pAge" min="0" max="130">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label for="pGender">Gender</label>
+          <select id="pGender">
+            <option value="">—</option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="pRoom">Room no.</label>
+          <input type="text" id="pRoom">
+        </div>
+      </div>
+      <div class="field">
+        <label for="pDevice">Device ID</label>
+        <input type="text" id="pDevice" placeholder="e.g. ESP32_001" required>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary">Register patient</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+requireAuth();
+document.getElementById("userName").textContent = getUserName();
+document.getElementById("logoutBtn").addEventListener("click", logout);
+
+const POLL_INTERVAL_MS = 4000;
+
+// ---------- Modal controls ----------
+const modalOverlay = document.getElementById("modalOverlay");
+const patientForm = document.getElementById("patientForm");
+const patientFormError = document.getElementById("patientFormError");
+
+document.getElementById("addPatientBtn").addEventListener("click", () => {
+  patientForm.reset();
+  patientFormError.classList.remove("visible");
+  modalOverlay.classList.add("visible");
+});
+document.getElementById("cancelModalBtn").addEventListener("click", () => {
+  modalOverlay.classList.remove("visible");
+});
+modalOverlay.addEventListener("click", (e) => {
+  if (e.target === modalOverlay) modalOverlay.classList.remove("visible");
+});
+
+patientForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  patientFormError.classList.remove("visible");
+
+  const payload = {
+    name: document.getElementById("pName").value.trim(),
+    age: document.getElementById("pAge").value ? parseInt(document.getElementById("pAge").value) : null,
+    gender: document.getElementById("pGender").value || null,
+    room_no: document.getElementById("pRoom").value.trim() || null,
+    device_id: document.getElementById("pDevice").value.trim(),
+  };
+
+  try {
+    await apiRequest("/api/patients", { method: "POST", body: JSON.stringify(payload) });
+    modalOverlay.classList.remove("visible");
+    await refreshDashboard();
+  } catch (err) {
+    patientFormError.textContent = err.message;
+    patientFormError.classList.add("visible");
+  }
+});
+
+// ---------- Dashboard rendering ----------
+
+function renderStats(counts) {
+  document.getElementById("statTotal").textContent = counts.total;
+  document.getElementById("statOnline").textContent = counts.online;
+  document.getElementById("statNormal").textContent = counts.normal;
+  document.getElementById("statWarning").textContent = counts.warning;
+  document.getElementById("statCritical").textContent = counts.critical;
+}
+
+function renderPatientTable(patients) {
+  const tbody = document.getElementById("patientTableBody");
+  const emptyState = document.getElementById("emptyState");
+
+  if (!patients.length) {
+    tbody.innerHTML = "";
+    emptyState.style.display = "block";
+    return;
+  }
+  emptyState.style.display = "none";
+
+  tbody.innerHTML = patients.map(p => `
+    <tr class="row-${p.status}">
+      <td class="patient-name">
+        <a href="/patient.html?id=${p.id}">${escapeHtml(p.name)}</a>
+        ${p.room_no ? `<span class="room">Room ${escapeHtml(p.room_no)}</span>` : ""}
+      </td>
+      <td>
+        <div class="mono" style="font-size:12px; color:var(--ink-muted); margin-bottom:3px;">${escapeHtml(p.device_id)}</div>
+        ${deviceStatusHtml(p.is_online)}
+      </td>
+      <td>${formatVital(p.heart_rate, " bpm")}</td>
+      <td>${formatVital(p.spo2, "%")}</td>
+      <td>${formatVital(p.temperature, "°C")}</td>
+      <td>${statusBadge(p.status)}</td>
+      <td class="mono" style="font-size:12px; color:var(--ink-muted);">${timeAgo(p.last_reading_at)}</td>
+    </tr>
+  `).join("");
+}
+
+function renderAlerts(alerts) {
+  const list = document.getElementById("alertsList");
+  if (!alerts.length) {
+    list.innerHTML = `<div class="empty-state">No alerts yet.</div>`;
+    return;
+  }
+  list.innerHTML = alerts.slice(0, 10).map(a => `
+    <div class="alert-item ${a.acknowledged ? "acknowledged" : ""}">
+      <span class="msg">${escapeHtml(a.message)}</span>
+      <span class="time">${formatDateTime(a.created_at)}</span>
+    </div>
+  `).join("");
+}
+
+async function refreshDashboard() {
+  try {
+    const dashboard = await apiRequest("/api/dashboard");
+    renderStats(dashboard.counts);
+    renderPatientTable(dashboard.patients);
+
+    const alerts = await apiRequest("/api/alerts");
+    renderAlerts(alerts);
+
+    document.getElementById("lastUpdated").textContent = "Updated " + new Date().toLocaleTimeString();
+  } catch (err) {
+    console.error("Dashboard refresh failed:", err);
+  }
+}
+
+refreshDashboard();
+setInterval(refreshDashboard, POLL_INTERVAL_MS);
+</script>
+
+</body>
+</html>

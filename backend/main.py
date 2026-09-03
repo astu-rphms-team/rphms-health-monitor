@@ -310,3 +310,8 @@ def serve_dashboard_page():
 @app.get("/patient.html")
 def serve_patient_page():
     return FileResponse("static/patient.html")
+
+
+@app.get("/alerts.html")
+def serve_alerts_page():
+    return FileResponse("static/alerts.html")

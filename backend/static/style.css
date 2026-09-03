@@ -1,0 +1,611 @@
+/* ============================================================
+   RPHMS — shared styles
+   Clinical instrument-panel aesthetic: dense, precise, legible.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --bg: #F6F8F9;
+  --surface: #FFFFFF;
+  --ink: #1B2430;
+  --ink-muted: #5B6874;
+  --border: #E3E8EA;
+  --accent: #14524F;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #E7EFEE;
+
+  --normal: #2F9E5B;
+  --normal-soft: #E9F7EF;
+  --warning: #D98E1F;
+  --warning-soft: #FBF1E1;
+  --critical: #D6455B;
+  --critical-soft: #FBE7EB;
+  --offline: #98A2AC;
+  --offline-soft: #EEF0F2;
+
+  --radius: 6px;
+  --shadow: 0 1px 2px rgba(27, 36, 48, 0.06);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.mono {
+  font-family: 'IBM Plex Mono', 'Courier New', monospace;
+}
+
+a { color: var(--accent); }
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* ---------- App shell: sidebar + topbar + content ---------- */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 24px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-brand {
+  padding: 0 20px 24px 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.sidebar-brand .name {
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+
+.sidebar-brand .tag {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin-top: 2px;
+}
+
+.sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 12px;
+}
+
+.sidebar nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  color: var(--ink-muted);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.sidebar nav a:hover {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.sidebar nav a.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 12px 20px 0 20px;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-footer .user-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sidebar-footer button {
+  margin-top: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.sidebar-footer button:hover {
+  border-color: var(--critical);
+  color: var(--critical);
+}
+
+.main {
+  padding: 28px 32px 48px 32px;
+  max-width: 1180px;
+}
+
+.topbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.topbar h1 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.topbar .subtitle {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin-top: 2px;
+}
+
+.disclaimer {
+  font-size: 12px;
+  color: var(--ink-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 20px;
+}
+
+/* ---------- Stat strip ---------- */
+
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.stat-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.stat-tile .label {
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.stat-tile .value {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 26px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.stat-tile.normal .value { color: var(--normal); }
+.stat-tile.warning .value { color: var(--warning); }
+.stat-tile.critical .value { color: var(--critical); }
+
+/* ---------- Panels ---------- */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+}
+
+.panel-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.panel-body {
+  padding: 0;
+}
+
+/* ---------- Patient table ---------- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+td {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  vertical-align: middle;
+}
+
+tr:last-child td { border-bottom: none; }
+
+tr.row-critical { box-shadow: inset 3px 0 0 var(--critical); }
+tr.row-warning { box-shadow: inset 3px 0 0 var(--warning); }
+tr.row-normal { box-shadow: inset 3px 0 0 var(--normal); }
+
+td.patient-name a {
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+}
+td.patient-name a:hover { color: var(--accent); }
+td.patient-name .room {
+  display: block;
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-weight: 400;
+}
+
+.vital-value {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 14px;
+}
+.vital-value .unit {
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-left: 2px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge.normal { background: var(--normal-soft); color: var(--normal); }
+.badge.warning { background: var(--warning-soft); color: var(--warning); }
+.badge.critical { background: var(--critical-soft); color: var(--critical); }
+.badge.offline { background: var(--offline-soft); color: var(--offline); }
+
+.badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.badge.critical {
+  animation: pulse-critical 1.6s ease-in-out infinite;
+}
+@keyframes pulse-critical {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.device-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.device-status .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--offline);
+}
+.device-status.online .dot { background: var(--normal); }
+.device-status.online { color: var(--normal); }
+
+.empty-state {
+  padding: 40px 18px;
+  text-align: center;
+  color: var(--ink-muted);
+  font-size: 14px;
+}
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.btn-primary:hover { opacity: 0.92; color: var(--accent-ink); }
+
+.btn-small { padding: 5px 10px; font-size: 12px; }
+
+/* ---------- Forms ---------- */
+
+.field {
+  margin-bottom: 14px;
+}
+.field label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 5px;
+  color: var(--ink-muted);
+}
+.field input,
+.field select {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--ink);
+}
+.field input:focus,
+.field select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.form-error {
+  background: var(--critical-soft);
+  color: var(--critical);
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  margin-bottom: 14px;
+  display: none;
+}
+.form-error.visible { display: block; }
+
+.form-success {
+  background: var(--normal-soft);
+  color: var(--normal);
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  margin-bottom: 14px;
+  display: none;
+}
+.form-success.visible { display: block; }
+
+/* ---------- Login page ---------- */
+
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 20px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px 28px;
+  box-shadow: var(--shadow);
+}
+
+.login-card .brand {
+  text-align: left;
+  margin-bottom: 24px;
+}
+
+.login-card .brand .mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.login-card .brand h1 {
+  font-size: 18px;
+  margin: 0 0 4px 0;
+}
+.login-card .brand p {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.login-card .demo-hint {
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  text-align: center;
+}
+
+/* ---------- Modal ---------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(27, 36, 48, 0.45);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 20px;
+}
+.modal-overlay.visible { display: flex; }
+
+.modal {
+  background: var(--surface);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 440px;
+  padding: 24px;
+  box-shadow: 0 8px 24px rgba(27,36,48,0.18);
+}
+
+.modal h2 {
+  font-size: 16px;
+  margin: 0 0 18px 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* ---------- Patient detail page ---------- */
+
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.detail-header .patient-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+.detail-header .patient-meta {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin-top: 4px;
+}
+
+.vital-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.vital-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+.vital-card .label {
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+.vital-card .value {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 30px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+.vital-card .value .unit {
+  font-size: 14px;
+  color: var(--ink-muted);
+  font-weight: 400;
+  margin-left: 3px;
+}
+
+.chart-wrap {
+  padding: 18px;
+}
+
+.alert-item {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.alert-item:last-child { border-bottom: none; }
+.alert-item .msg { color: var(--ink); }
+.alert-item .time {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.alert-item.acknowledged { opacity: 0.5; }
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-muted);
+  text-decoration: none;
+  margin-bottom: 14px;
+}
+.back-link:hover { color: var(--accent); }
+
+@media (max-width: 900px) {
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar { display: none; }
+  .stat-strip { grid-template-columns: repeat(2, 1fr); }
+  .vital-cards { grid-template-columns: 1fr; }
+  .form-row { grid-template-columns: 1fr; }
+}

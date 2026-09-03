@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Patient — RPHMS</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="name">RPHMS</div>
+      <div class="tag">Remote Health Monitoring</div>
+    </div>
+    <nav>
+      <a href="/dashboard.html">Dashboard</a>
+      <a href="/alerts.html">Alerts</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-name" id="userName">—</div>
+      <button id="logoutBtn">Sign out</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <a href="/dashboard.html" class="back-link">&larr; Back to dashboard</a>
+
+    <div class="detail-header">
+      <div>
+        <div class="patient-title" id="patientName">Loading…</div>
+        <div class="patient-meta" id="patientMeta"></div>
+      </div>
+      <div id="patientStatusBadge"></div>
+    </div>
+
+    <div class="vital-cards">
+      <div class="vital-card">
+        <div class="label">Heart rate</div>
+        <div class="value" id="hrValue">— <span class="unit">bpm</span></div>
+      </div>
+      <div class="vital-card">
+        <div class="label">SpO₂</div>
+        <div class="value" id="spo2Value">— <span class="unit">%</span></div>
+      </div>
+      <div class="vital-card">
+        <div class="label">Temperature</div>
+        <div class="value" id="tempValue">— <span class="unit">°C</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2>History — heart rate &amp; SpO₂</h2>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="hrSpo2Chart" height="90"></canvas>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2>History — temperature</h2>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="tempChart" height="90"></canvas>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Alerts for this patient</h2>
+      </div>
+      <div class="panel-body" id="patientAlerts">
+        <div class="empty-state">No alerts yet.</div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<script src="/static/vendor/chart.umd.js"></script>
+<script src="/static/app.js"></script>
+<script>
+requireAuth();
+document.getElementById("userName").textContent = getUserName();
+document.getElementById("logoutBtn").addEventListener("click", logout);
+
+const params = new URLSearchParams(window.location.search);
+const patientId = params.get("id");
+if (!patientId) window.location.href = "/dashboard.html";
+
+const POLL_INTERVAL_MS = 4000;
+
+let hrSpo2Chart, tempChart;
+
+function initCharts() {
+  const hrSpo2Ctx = document.getElementById("hrSpo2Chart").getContext("2d");
+  hrSpo2Chart = new Chart(hrSpo2Ctx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: "Heart rate (bpm)",
+          data: [],
+          borderColor: "#14524F",
+          backgroundColor: "rgba(20,82,79,0.08)",
+          tension: 0.3,
+          pointRadius: 2,
+        },
+        {
+          label: "SpO₂ (%)",
+          data: [],
+          borderColor: "#D98E1F",
+          backgroundColor: "rgba(217,142,31,0.08)",
+          tension: 0.3,
+          pointRadius: 2,
+          yAxisID: "y1",
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: "index", intersect: false },
+      scales: {
+        y: { title: { display: true, text: "bpm" } },
+        y1: { position: "right", title: { display: true, text: "%" }, grid: { drawOnChartArea: false } },
+      },
+    },
+  });
+
+  const tempCtx = document.getElementById("tempChart").getContext("2d");
+  tempChart = new Chart(tempCtx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: "Temperature (°C)",
+          data: [],
+          borderColor: "#D6455B",
+          backgroundColor: "rgba(214,69,91,0.08)",
+          tension: 0.3,
+          pointRadius: 2,
+          fill: true,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      scales: { y: { title: { display: true, text: "°C" } } },
+    },
+  });
+}
+
+function updateCharts(vitals) {
+  const labels = vitals.map(v => formatDateTime(v.recorded_at));
+  hrSpo2Chart.data.labels = labels;
+  hrSpo2Chart.data.datasets[0].data = vitals.map(v => v.heart_rate);
+  hrSpo2Chart.data.datasets[1].data = vitals.map(v => v.spo2);
+  hrSpo2Chart.update();
+
+  tempChart.data.labels = labels;
+  tempChart.data.datasets[0].data = vitals.map(v => v.temperature);
+  tempChart.update();
+}
+
+function renderPatientAlerts(alerts, patientId) {
+  const relevant = alerts.filter(a => String(a.patient_id) === String(patientId));
+  const container = document.getElementById("patientAlerts");
+  if (!relevant.length) {
+    container.innerHTML = `<div class="empty-state">No alerts yet.</div>`;
+    return;
+  }
+  container.innerHTML = relevant.slice(0, 15).map(a => `
+    <div class="alert-item ${a.acknowledged ? "acknowledged" : ""}">
+      <span class="msg">${escapeHtml(a.message)}</span>
+      <span class="time">${formatDateTime(a.created_at)}</span>
+    </div>
+  `).join("");
+}
+
+async function refreshPatient() {
+  try {
+    const patient = await apiRequest(`/api/patients/${patientId}`);
+    document.getElementById("patientName").textContent = patient.name;
+    document.getElementById("patientMeta").textContent =
+      [patient.age ? `${patient.age} yrs` : null, patient.gender, patient.room_no ? `Room ${patient.room_no}` : null, patient.device_id]
+        .filter(Boolean).join(" · ");
+
+    const latest = await apiRequest(`/api/patients/${patientId}/latest`);
+    if (latest) {
+      document.getElementById("hrValue").innerHTML = `${latest.heart_rate ?? "—"} <span class="unit">bpm</span>`;
+      document.getElementById("spo2Value").innerHTML = `${latest.spo2 ?? "—"} <span class="unit">%</span>`;
+      document.getElementById("tempValue").innerHTML = `${latest.temperature ?? "—"} <span class="unit">°C</span>`;
+      document.getElementById("patientStatusBadge").innerHTML = statusBadge(latest.status);
+    }
+
+    const vitals = await apiRequest(`/api/patients/${patientId}/vitals?limit=30`);
+    updateCharts(vitals);
+
+    const alerts = await apiRequest("/api/alerts");
+    renderPatientAlerts(alerts, patientId);
+  } catch (err) {
+    console.error("Failed to refresh patient:", err);
+  }
+}
+
+try {
+  initCharts();
+} catch (err) {
+  console.error("Chart init failed:", err);
+}
+refreshPatient();
+setInterval(refreshPatient, POLL_INTERVAL_MS);
+</script>
+
+</body>
+</html>
