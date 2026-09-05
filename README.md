@@ -7,9 +7,10 @@ with Telegram alerts on critical vitals.
 > diagnostic device and must not be used to make clinical decisions.
 
 ## Project status
-- ✅ Backend (this README) — built and tested
-- ⏳ Frontend (HTML/CSS/JS dashboard) — next step
-- ⏳ Firmware (ESP32) — after frontend
+- ✅ Backend — built and tested
+- ✅ Frontend (login, dashboard, alerts, patient detail with charts) — built and tested
+- ✅ Firmware (ESP32 + MAX30102 + DS18B20) — code complete, staged test sketches included
+- ✅ Device simulator (for testing/demo without hardware) — built and tested
 
 ## Folder structure
 
@@ -105,9 +106,142 @@ If all 6 steps work, your backend is fully functional.
 (Change this later in `main.py`'s `create_default_admin()` function, or add a
 "change password" feature if you want to extend the project.)
 
+## Using the web dashboard
+
+With the backend running (see above), just open your browser to:
+
+**http://localhost:8000/**
+
+1. Log in with `admin` / `admin123`
+2. Click **"+ Register patient"** and fill in a name and a `device_id`
+   (e.g. `ESP32_001`) — this `device_id` must exactly match what the ESP32
+   firmware sends later.
+3. The dashboard auto-refreshes every 4 seconds. Once real (or test) vitals
+   are posted to `/api/vitals`, the patient row updates live with color-coded
+   status.
+4. Click a patient's name to see their live vitals and history charts.
+
+### Testing the dashboard without hardware yet
+
+You can simulate the ESP32 by posting vitals manually with curl (run this
+in a second terminal while the backend is running):
+
+```bash
+curl -X POST http://localhost:8000/api/vitals \
+  -H "Content-Type: application/json" \
+  -d '{"device_id":"ESP32_001","heart_rate":75,"spo2":98,"temperature":36.8}'
+```
+
+Change the numbers to trigger warning/critical status, e.g.:
+```bash
+curl -X POST http://localhost:8000/api/vitals \
+  -H "Content-Type: application/json" \
+  -d '{"device_id":"ESP32_001","heart_rate":140,"spo2":84,"temperature":39.6}'
+```
+Refresh the dashboard and you should see the row turn red and a new entry
+appear under "Recent alerts".
+
 ## Tech stack
 - **Backend:** Python, FastAPI, SQLAlchemy, SQLite
 - **Auth:** bcrypt password hashing + simple session tokens
 - **Alerts:** Telegram Bot API
-- **Frontend:** Plain HTML/CSS/JS (Chart.js for graphs) — coming next
-- **Firmware:** ESP32 (Arduino framework), MAX30102, DS18B20 — coming after frontend
+- **Frontend:** Plain HTML/CSS/JS, Chart.js (vendored locally in
+  `static/vendor/` so the demo works without internet access)
+- **Firmware:** ESP32 (Arduino framework), MAX30102, DS18B20
+
+## Testing without hardware (device simulator)
+
+If your ESP32/sensors haven't arrived yet, or you just want to demo the
+system quickly, run the included simulator instead of real hardware. It
+sends realistic vitals to your backend exactly like the real firmware
+will, including occasional warning/critical spikes so you can see the
+alerting pipeline fire.
+
+```bash
+cd backend
+python simulate_device.py
+```
+
+Before running it, make sure you've registered a patient in the dashboard
+with `device_id` = `ESP32_001` (or edit `DEVICE_ID` at the top of
+`simulate_device.py` to match a patient you've already registered). You
+can run multiple copies of the script with different device IDs to
+simulate several patients at once.
+
+## Connecting a real ESP32 device
+
+Once your hardware and firmware (see `firmware/README.md`) are ready, the
+ESP32 needs to reach your backend over the network. There are two ways to
+do this, depending on your situation.
+
+### Option A — Same Wi-Fi network (recommended for your defense demo)
+
+This is the simplest and most reliable option: your laptop (running the
+backend) and your ESP32 just need to be on the same Wi-Fi network. A
+personal mobile hotspot works great for this — it avoids campus/lab Wi-Fi
+networks that sometimes block device-to-device traffic.
+
+**1. Find your laptop's local IP address:**
+
+Windows (PowerShell):
+```powershell
+ipconfig
+```
+Look for "IPv4 Address" under your active Wi-Fi adapter, e.g. `192.168.1.42`.
+
+Mac/Linux:
+```bash
+ifconfig | grep "inet "
+```
+
+**2. Make sure the backend listens on all network interfaces**, not just
+localhost (our `main.py` already does this by default — `--host 0.0.0.0`
+is the default when you run `uvicorn main:app --reload`, but double-check
+by explicitly running):
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**3. Allow the connection through your firewall** (Windows will usually
+prompt you the first time — click "Allow"). If it doesn't prompt you,
+you may need to add an inbound rule for port 8000 in Windows Defender
+Firewall settings.
+
+**4. In your ESP32 firmware**, set:
+```cpp
+const char* SERVER_URL = "http://192.168.1.42:8000";  // your laptop's IP
+```
+
+**5. Test it from another device first** (e.g. your phone, on the same
+Wi-Fi): open a browser and go to `http://192.168.1.42:8000/` — if the
+login page loads, your ESP32 will be able to reach it too.
+
+> Your laptop's local IP can change each time you reconnect to Wi-Fi
+> (unless your router assigns a fixed/static IP to your device). If the
+> ESP32 stops connecting after a restart, re-check your IP with `ipconfig`.
+
+### Option B — True remote access (ESP32 on a different network)
+
+If your ESP32 needs to reach the backend from somewhere else entirely
+(e.g. a different building, or you want to demo remotely), you need a
+public URL. The simplest way for a student project is a tunneling tool
+like **ngrok**:
+
+1. Download ngrok from ngrok.com and sign up for a free account.
+2. Run your backend normally: `uvicorn main:app --reload`
+3. In a separate terminal:
+   ```bash
+   ngrok http 8000
+   ```
+4. ngrok prints a public URL like `https://a1b2c3d4.ngrok-free.app` —
+   use this as your `SERVER_URL` in the firmware.
+
+> Note: ngrok's free URL changes every time you restart it, so you'll
+> need to re-flash the firmware (or better, make `SERVER_URL` easy to
+> update) each time. For a one-off demo this is fine; for anything
+> longer-term, consider deploying the backend to a free-tier host like
+> Render or Railway instead, which gives you a stable public URL.
+
+For your project defense specifically, **Option A (same network) is
+strongly recommended** — it's simpler, doesn't depend on internet
+connectivity in the exam room, and is easy to explain if asked.
