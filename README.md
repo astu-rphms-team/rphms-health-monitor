@@ -21,7 +21,7 @@ Computer Science and Engineering (CSE) departments.
 | 6 | Ayano Tibeso Jilo | UGE/27824/14 | CSE | — |
 | 7 | Eyob Mulugeta Degu | UGE/27813/14 | CSE | — |
 | 8 | Metiol Alemayehu Roba | UGE/27815/14 | CSE | — |
-| 9 | Zelalem Endale | UGE/27821/14 | CSE | — |
+| 9 | Zelalem Endale Tadesse | UGE/27821/14 | CSE | — |
 
 ## Project status
 - ✅ Backend — built and tested
