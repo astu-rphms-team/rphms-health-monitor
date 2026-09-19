@@ -17,12 +17,11 @@ Computer Science and Engineering (CSE) departments.
 | 2 | Edidia Tamene Gobena | UGE/24104/13 | SE | 1 |
 | 3 | Hayat Habiba Dilgeba | UGE/24098/13 | SE | 1 |
 | 4 | Meseret Legesse Wakjira | UGE/24327/13 | SE | 1 |
-| 5 | Sena Goshime Negash | UGE/24116/13 | SE | 1 |
-| 6 | Ruth Eshetu | UGE/27811/14 | CSE | — |
-| 7 | Ayano Tibeso | UGE/27824/14 | CSE | — |
-| 8 | Eyob Mulugeta | UGE/27813/14 | CSE | — |
-| 9 | Metiol Alemayehu | UGE/27815/14 | CSE | — |
-| 10 | Zelalem Endale | UGE/27821/14 | CSE | — |
+| 5 | Ruth Eshetu | UGE/27811/14 | CSE | — |
+| 6 | Ayano Tibeso | UGE/27824/14 | CSE | — |
+| 7 | Eyob Mulugeta | UGE/27813/14 | CSE | — |
+| 8 | Metiol Alemayehu | UGE/27815/14 | CSE | — |
+| 9 | Zelalem Endale | UGE/27821/14 | CSE | — |
 
 ## Project status
 - ✅ Backend — built and tested
