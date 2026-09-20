@@ -30,7 +30,7 @@ import time
 # CONFIGURE THESE
 # ---------------------------------------------------------------------------
 BACKEND_URL = "http://localhost:8000"   # change if backend runs elsewhere
-DEVICE_ID = "ESP32_001"                  # must match a patient's device_id
+DEVICE_ID = "ESP32_001, ESP32_002"                  # must match a patient's device_id
 SEND_INTERVAL_SECONDS = 4                # how often to send a reading
 
 # ---------------------------------------------------------------------------

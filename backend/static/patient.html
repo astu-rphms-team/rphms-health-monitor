@@ -33,7 +33,10 @@
         <div class="patient-title" id="patientName">Loading…</div>
         <div class="patient-meta" id="patientMeta"></div>
       </div>
-      <div id="patientStatusBadge"></div>
+      <div class="topbar-actions" id="topbarActions">
+        <button class="icon-btn wide" id="exportBtn" title="Download readings as CSV">Export CSV</button>
+        <span id="patientStatusBadge"></span>
+      </div>
     </div>
 
     <div class="vital-cards">
@@ -51,9 +54,38 @@
       </div>
     </div>
 
+    <div class="stat-row" id="statRow">
+      <div class="mini-stat">
+        <div class="label">Readings</div>
+        <div class="value" id="statReadings">—</div>
+        <div class="sub">total recorded</div>
+      </div>
+      <div class="mini-stat">
+        <div class="label">Avg HR</div>
+        <div class="value" id="statAvgHr">—</div>
+        <div class="sub" id="statHrRange">—</div>
+      </div>
+      <div class="mini-stat">
+        <div class="label">Avg SpO₂</div>
+        <div class="value" id="statAvgSpo2">—</div>
+        <div class="sub" id="statSpo2Range">—</div>
+      </div>
+      <div class="mini-stat">
+        <div class="label">Critical events</div>
+        <div class="value" id="statCritical" style="color:var(--critical);">—</div>
+        <div class="sub" id="statWarningCount">—</div>
+      </div>
+    </div>
+
     <div class="panel">
       <div class="panel-header">
         <h2>History — heart rate &amp; SpO₂</h2>
+        <div class="range-select" id="rangeSelect">
+          <button data-limit="20">20</button>
+          <button data-limit="50" class="active">50</button>
+          <button data-limit="100">100</button>
+          <button data-limit="300">300</button>
+        </div>
       </div>
       <div class="chart-wrap">
         <canvas id="hrSpo2Chart" height="90"></canvas>
@@ -83,92 +115,120 @@
 
 <script src="/static/vendor/chart.umd.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/assistant.js"></script>
 <script>
 requireAuth();
 document.getElementById("userName").textContent = getUserName();
 document.getElementById("logoutBtn").addEventListener("click", logout);
+mountTopbarControls();
 
 const params = new URLSearchParams(window.location.search);
 const patientId = params.get("id");
 if (!patientId) window.location.href = "/dashboard.html";
 
 const POLL_INTERVAL_MS = 4000;
-
+let chartLimit = 50;
 let hrSpo2Chart, tempChart;
 
+document.getElementById("exportBtn").addEventListener("click", () => {
+  downloadWithAuth(`/api/patients/${patientId}/export`, `rphms_patient_${patientId}_vitals.csv`);
+});
+
+document.getElementById("rangeSelect").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  document.querySelectorAll("#rangeSelect button").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  chartLimit = parseInt(btn.dataset.limit);
+  refreshPatient();
+});
+
+function chartColors() {
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  return {
+    grid: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)",
+    text: isDark ? "#94A3B0" : "#5B6874",
+  };
+}
+
 function initCharts() {
-  const hrSpo2Ctx = document.getElementById("hrSpo2Chart").getContext("2d");
-  hrSpo2Chart = new Chart(hrSpo2Ctx, {
+  const c = chartColors();
+  const commonScales = (yTitle) => ({
+    y: {
+      title: { display: true, text: yTitle, color: c.text },
+      ticks: { color: c.text }, grid: { color: c.grid },
+    },
+    x: { ticks: { color: c.text, maxTicksLimit: 8 }, grid: { color: c.grid } },
+  });
+
+  hrSpo2Chart = new Chart(document.getElementById("hrSpo2Chart").getContext("2d"), {
     type: "line",
     data: {
       labels: [],
       datasets: [
-        {
-          label: "Heart rate (bpm)",
-          data: [],
-          borderColor: "#14524F",
-          backgroundColor: "rgba(20,82,79,0.08)",
-          tension: 0.3,
-          pointRadius: 2,
-        },
-        {
-          label: "SpO₂ (%)",
-          data: [],
-          borderColor: "#D98E1F",
-          backgroundColor: "rgba(217,142,31,0.08)",
-          tension: 0.3,
-          pointRadius: 2,
-          yAxisID: "y1",
-        },
+        { label: "Heart rate (bpm)", data: [], borderColor: "#14524F",
+          backgroundColor: "rgba(20,82,79,0.08)", tension: 0.3, pointRadius: 1.5, borderWidth: 2 },
+        { label: "SpO₂ (%)", data: [], borderColor: "#D98E1F",
+          backgroundColor: "rgba(217,142,31,0.08)", tension: 0.3, pointRadius: 1.5, borderWidth: 2, yAxisID: "y1" },
       ],
     },
     options: {
       responsive: true,
       interaction: { mode: "index", intersect: false },
+      plugins: { legend: { labels: { color: c.text } } },
       scales: {
-        y: { title: { display: true, text: "bpm" } },
-        y1: { position: "right", title: { display: true, text: "%" }, grid: { drawOnChartArea: false } },
+        ...commonScales("bpm"),
+        y1: { position: "right", title: { display: true, text: "%", color: c.text },
+              ticks: { color: c.text }, grid: { drawOnChartArea: false } },
       },
     },
   });
 
-  const tempCtx = document.getElementById("tempChart").getContext("2d");
-  tempChart = new Chart(tempCtx, {
+  tempChart = new Chart(document.getElementById("tempChart").getContext("2d"), {
     type: "line",
     data: {
       labels: [],
-      datasets: [
-        {
-          label: "Temperature (°C)",
-          data: [],
-          borderColor: "#D6455B",
-          backgroundColor: "rgba(214,69,91,0.08)",
-          tension: 0.3,
-          pointRadius: 2,
-          fill: true,
-        },
-      ],
+      datasets: [{ label: "Temperature (°C)", data: [], borderColor: "#D6455B",
+                   backgroundColor: "rgba(214,69,91,0.08)", tension: 0.3, pointRadius: 1.5, borderWidth: 2, fill: true }],
     },
     options: {
       responsive: true,
-      scales: { y: { title: { display: true, text: "°C" } } },
+      plugins: { legend: { labels: { color: c.text } } },
+      scales: commonScales("°C"),
     },
   });
 }
 
 function updateCharts(vitals) {
+  if (!hrSpo2Chart || !tempChart) return;
   const labels = vitals.map(v => formatDateTime(v.recorded_at));
   hrSpo2Chart.data.labels = labels;
   hrSpo2Chart.data.datasets[0].data = vitals.map(v => v.heart_rate);
   hrSpo2Chart.data.datasets[1].data = vitals.map(v => v.spo2);
-  hrSpo2Chart.update();
+  hrSpo2Chart.update("none");
 
   tempChart.data.labels = labels;
   tempChart.data.datasets[0].data = vitals.map(v => v.temperature);
-  tempChart.update();
+  tempChart.update("none");
 }
 
-function renderPatientAlerts(alerts, patientId) {
+function renderStats(stats) {
+  document.getElementById("statReadings").textContent = stats.reading_count ?? 0;
+  if (!stats.reading_count) return;
+
+  if (stats.heart_rate) {
+    document.getElementById("statAvgHr").textContent = stats.heart_rate.avg;
+    document.getElementById("statHrRange").textContent = `${stats.heart_rate.min}–${stats.heart_rate.max} bpm`;
+  }
+  if (stats.spo2) {
+    document.getElementById("statAvgSpo2").textContent = stats.spo2.avg;
+    document.getElementById("statSpo2Range").textContent = `${stats.spo2.min}–${stats.spo2.max} %`;
+  }
+  document.getElementById("statCritical").textContent = stats.critical_count ?? 0;
+  document.getElementById("statWarningCount").textContent = `${stats.warning_count ?? 0} warning`;
+}
+
+function renderPatientAlerts(alerts) {
   const relevant = alerts.filter(a => String(a.patient_id) === String(patientId));
   const container = document.getElementById("patientAlerts");
   if (!relevant.length) {
@@ -188,8 +248,9 @@ async function refreshPatient() {
     const patient = await apiRequest(`/api/patients/${patientId}`);
     document.getElementById("patientName").textContent = patient.name;
     document.getElementById("patientMeta").textContent =
-      [patient.age ? `${patient.age} yrs` : null, patient.gender, patient.room_no ? `Room ${patient.room_no}` : null, patient.device_id]
-        .filter(Boolean).join(" · ");
+      [patient.age ? `${patient.age} yrs` : null, patient.gender,
+       patient.room_no ? `Room ${patient.room_no}` : null, patient.device_id]
+      .filter(Boolean).join(" · ");
 
     const latest = await apiRequest(`/api/patients/${patientId}/latest`);
     if (latest) {
@@ -199,21 +260,21 @@ async function refreshPatient() {
       document.getElementById("patientStatusBadge").innerHTML = statusBadge(latest.status);
     }
 
-    const vitals = await apiRequest(`/api/patients/${patientId}/vitals?limit=30`);
-    updateCharts(vitals);
+    const [vitals, stats, alerts] = await Promise.all([
+      apiRequest(`/api/patients/${patientId}/vitals?limit=${chartLimit}`),
+      apiRequest(`/api/patients/${patientId}/stats`),
+      apiRequest("/api/alerts"),
+    ]);
 
-    const alerts = await apiRequest("/api/alerts");
-    renderPatientAlerts(alerts, patientId);
+    updateCharts(vitals);
+    renderStats(stats);
+    renderPatientAlerts(alerts);
   } catch (err) {
     console.error("Failed to refresh patient:", err);
   }
 }
 
-try {
-  initCharts();
-} catch (err) {
-  console.error("Chart init failed:", err);
-}
+try { initCharts(); } catch (err) { console.error("Chart init failed:", err); }
 refreshPatient();
 setInterval(refreshPatient, POLL_INTERVAL_MS);
 </script>

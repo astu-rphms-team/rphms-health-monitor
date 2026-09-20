@@ -29,13 +29,21 @@
     <div class="topbar">
       <div>
         <h1>Patient monitoring</h1>
-        <div class="subtitle">Live vitals, refreshed automatically</div>
+        <div class="subtitle" id="liveSubtitle">Live vitals, refreshed automatically</div>
       </div>
-      <button class="btn btn-primary" id="addPatientBtn">+ Register patient</button>
+      <div class="topbar-actions" id="topbarActions">
+        <button class="icon-btn wide" id="pauseBtn" title="Pause auto-refresh">Pause</button>
+        <button class="btn btn-primary" id="addPatientBtn">+ Register patient</button>
+      </div>
     </div>
 
     <div class="disclaimer">
       For health monitoring and alerting only. This system does not provide medical diagnosis — always consult a qualified healthcare professional for clinical decisions.
+    </div>
+
+    <div class="critical-banner" id="criticalBanner">
+      <span id="criticalBannerText"></span>
+      <button id="criticalBannerBtn">View alerts</button>
     </div>
 
     <div class="stat-strip" id="statStrip">
@@ -61,37 +69,58 @@
       </div>
     </div>
 
+    <div class="toolbar">
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Search name, room, or device...">
+      </div>
+      <div class="filter-chips" id="filterChips">
+        <button class="chip active" data-filter="all">All</button>
+        <button class="chip" data-filter="critical">Critical</button>
+        <button class="chip" data-filter="warning">Warning</button>
+        <button class="chip" data-filter="normal">Normal</button>
+        <button class="chip" data-filter="offline">Offline</button>
+      </div>
+    </div>
+
     <div class="panel">
       <div class="panel-header">
-        <h2>Patients</h2>
-        <span class="subtitle" id="lastUpdated" style="font-size:12px; color:var(--ink-muted);"></span>
+        <h2>Patients <span id="resultCount" style="font-weight:400; color:var(--ink-muted); font-size:12px;"></span></h2>
+        <span style="font-size:12px; color:var(--ink-muted);" id="lastUpdated"></span>
       </div>
       <div class="panel-body">
         <table>
           <thead>
             <tr>
-              <th>Patient</th>
-              <th>Device</th>
-              <th>Heart rate</th>
-              <th>SpO₂</th>
-              <th>Temperature</th>
-              <th>Status</th>
-              <th>Last reading</th>
+              <th class="sortable" data-sort="name">Patient</th>
+              <th class="sortable" data-sort="device_id">Device</th>
+              <th class="sortable" data-sort="heart_rate">Heart rate</th>
+              <th class="sortable" data-sort="spo2">SpO₂</th>
+              <th class="sortable" data-sort="temperature">Temperature</th>
+              <th class="sortable" data-sort="status">Status</th>
+              <th class="sortable" data-sort="last_reading_at">Last reading</th>
+              <th></th>
             </tr>
           </thead>
-          <tbody id="patientTableBody">
-            <!-- rows injected by JS -->
-          </tbody>
+          <tbody id="patientTableBody"></tbody>
         </table>
-        <div class="empty-state" id="emptyState" style="display:none;">
-          No patients registered yet. Click "Register patient" to add one.
-        </div>
+        <div class="empty-state" id="emptyState" style="display:none;"></div>
       </div>
     </div>
 
-    <div class="panel" id="alertsPanel">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Configured thresholds</h2>
+        <span style="font-size:12px; color:var(--ink-muted);">Edit in backend/thresholds.py</span>
+      </div>
+      <div class="threshold-grid" id="thresholdGrid">
+        <div class="threshold-item"><div class="vital-name">Loading…</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
       <div class="panel-header">
         <h2>Recent alerts</h2>
+        <a href="/alerts.html" style="font-size:12px;">View all →</a>
       </div>
       <div class="panel-body" id="alertsList">
         <div class="empty-state">No alerts yet.</div>
@@ -101,12 +130,13 @@
 
 </div>
 
-<!-- Register patient modal -->
+<!-- Register / edit patient modal -->
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal">
-    <h2>Register patient</h2>
+    <h2 id="modalTitle">Register patient</h2>
     <div class="form-error" id="patientFormError"></div>
     <form id="patientForm">
+      <input type="hidden" id="pId">
       <div class="form-row">
         <div class="field">
           <label for="pName">Full name</label>
@@ -137,51 +167,81 @@
       </div>
       <div class="modal-actions">
         <button type="button" class="btn" id="cancelModalBtn">Cancel</button>
-        <button type="submit" class="btn btn-primary">Register patient</button>
+        <button type="submit" class="btn btn-primary" id="modalSubmitBtn">Register patient</button>
       </div>
     </form>
   </div>
 </div>
 
 <script src="/static/app.js"></script>
+<script src="/static/assistant.js"></script>
 <script>
 requireAuth();
 document.getElementById("userName").textContent = getUserName();
 document.getElementById("logoutBtn").addEventListener("click", logout);
+mountTopbarControls();
 
 const POLL_INTERVAL_MS = 4000;
 
-// ---------- Modal controls ----------
+let allPatients = [];
+let currentFilter = "all";
+let searchTerm = "";
+let sortKey = null;
+let sortDir = "asc";
+let paused = false;
+let knownCriticalIds = new Set();
+let firstLoad = true;
+
+// ---------- Modal (register + edit) ----------
 const modalOverlay = document.getElementById("modalOverlay");
 const patientForm = document.getElementById("patientForm");
 const patientFormError = document.getElementById("patientFormError");
 
-document.getElementById("addPatientBtn").addEventListener("click", () => {
+function openModal(patient) {
   patientForm.reset();
   patientFormError.classList.remove("visible");
+  const isEdit = Boolean(patient);
+
+  document.getElementById("modalTitle").textContent = isEdit ? "Edit patient" : "Register patient";
+  document.getElementById("modalSubmitBtn").textContent = isEdit ? "Save changes" : "Register patient";
+  document.getElementById("pId").value = isEdit ? patient.id : "";
+  document.getElementById("pDevice").disabled = isEdit; // device_id is the hardware link, don't let it drift
+
+  if (isEdit) {
+    document.getElementById("pName").value = patient.name || "";
+    document.getElementById("pAge").value = patient.age || "";
+    document.getElementById("pGender").value = patient.gender || "";
+    document.getElementById("pRoom").value = patient.room_no || "";
+    document.getElementById("pDevice").value = patient.device_id || "";
+  }
   modalOverlay.classList.add("visible");
-});
-document.getElementById("cancelModalBtn").addEventListener("click", () => {
-  modalOverlay.classList.remove("visible");
-});
-modalOverlay.addEventListener("click", (e) => {
-  if (e.target === modalOverlay) modalOverlay.classList.remove("visible");
-});
+}
+
+document.getElementById("addPatientBtn").addEventListener("click", () => openModal(null));
+document.getElementById("cancelModalBtn").addEventListener("click", () => modalOverlay.classList.remove("visible"));
+modalOverlay.addEventListener("click", (e) => { if (e.target === modalOverlay) modalOverlay.classList.remove("visible"); });
 
 patientForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   patientFormError.classList.remove("visible");
 
+  const id = document.getElementById("pId").value;
   const payload = {
     name: document.getElementById("pName").value.trim(),
     age: document.getElementById("pAge").value ? parseInt(document.getElementById("pAge").value) : null,
     gender: document.getElementById("pGender").value || null,
     room_no: document.getElementById("pRoom").value.trim() || null,
-    device_id: document.getElementById("pDevice").value.trim(),
   };
 
   try {
-    await apiRequest("/api/patients", { method: "POST", body: JSON.stringify(payload) });
+    if (id) {
+      await apiRequest(`/api/patients/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+      showToast("Patient updated", "success");
+    } else {
+      payload.device_id = document.getElementById("pDevice").value.trim();
+      await apiRequest("/api/patients", { method: "POST", body: JSON.stringify(payload) });
+      showToast("Patient registered", "success");
+    }
     modalOverlay.classList.remove("visible");
     await refreshDashboard();
   } catch (err) {
@@ -190,28 +250,121 @@ patientForm.addEventListener("submit", async (e) => {
   }
 });
 
-// ---------- Dashboard rendering ----------
+// ---------- Row actions ----------
+async function editPatient(id) {
+  const patient = await apiRequest(`/api/patients/${id}`);
+  openModal(patient);
+}
+window.editPatient = editPatient;
 
-function renderStats(counts) {
-  document.getElementById("statTotal").textContent = counts.total;
-  document.getElementById("statOnline").textContent = counts.online;
-  document.getElementById("statNormal").textContent = counts.normal;
-  document.getElementById("statWarning").textContent = counts.warning;
-  document.getElementById("statCritical").textContent = counts.critical;
+async function deletePatient(id, name) {
+  if (!confirm(`Delete ${name}? This also removes all their recorded vitals and alerts.`)) return;
+  try {
+    await apiRequest(`/api/patients/${id}`, { method: "DELETE" });
+    showToast(`${name} deleted`, "success");
+    await refreshDashboard();
+  } catch (err) {
+    showToast("Delete failed: " + err.message, "error");
+  }
+}
+window.deletePatient = deletePatient;
+
+// ---------- Controls ----------
+document.getElementById("searchInput").addEventListener("input", (e) => {
+  searchTerm = e.target.value.toLowerCase();
+  renderTable();
+});
+
+document.getElementById("filterChips").addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (!chip) return;
+  document.querySelectorAll("#filterChips .chip").forEach(c => c.classList.remove("active"));
+  chip.classList.add("active");
+  currentFilter = chip.dataset.filter;
+  renderTable();
+});
+
+document.querySelectorAll("th.sortable").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.sort;
+    if (sortKey === key) {
+      sortDir = sortDir === "asc" ? "desc" : "asc";
+    } else {
+      sortKey = key;
+      sortDir = "asc";
+    }
+    document.querySelectorAll("th.sortable").forEach(h => h.classList.remove("sort-asc", "sort-desc"));
+    th.classList.add(sortDir === "asc" ? "sort-asc" : "sort-desc");
+    renderTable();
+  });
+});
+
+document.getElementById("pauseBtn").addEventListener("click", () => {
+  paused = !paused;
+  const btn = document.getElementById("pauseBtn");
+  btn.textContent = paused ? "Resume" : "Pause";
+  document.getElementById("liveSubtitle").textContent = paused
+    ? "Auto-refresh paused"
+    : "Live vitals, refreshed automatically";
+  showToast(paused ? "Auto-refresh paused" : "Auto-refresh resumed", "info", 2000);
+});
+
+document.getElementById("criticalBannerBtn").addEventListener("click", () => {
+  window.location.href = "/alerts.html";
+});
+
+// ---------- Rendering ----------
+function getFiltered() {
+  let rows = allPatients.slice();
+
+  if (currentFilter === "offline") {
+    rows = rows.filter(p => !p.is_online);
+  } else if (currentFilter !== "all") {
+    rows = rows.filter(p => p.status === currentFilter);
+  }
+
+  if (searchTerm) {
+    rows = rows.filter(p =>
+      (p.name || "").toLowerCase().includes(searchTerm) ||
+      (p.room_no || "").toLowerCase().includes(searchTerm) ||
+      (p.device_id || "").toLowerCase().includes(searchTerm)
+    );
+  }
+
+  if (sortKey) {
+    const severity = { critical: 3, warning: 2, normal: 1 };
+    rows.sort((a, b) => {
+      let av = a[sortKey], bv = b[sortKey];
+      if (sortKey === "status") { av = severity[av] || 0; bv = severity[bv] || 0; }
+      if (av === null || av === undefined) return 1;
+      if (bv === null || bv === undefined) return -1;
+      if (typeof av === "string") return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+      return sortDir === "asc" ? av - bv : bv - av;
+    });
+  }
+
+  return rows;
 }
 
-function renderPatientTable(patients) {
+function renderTable() {
+  const rows = getFiltered();
   const tbody = document.getElementById("patientTableBody");
   const emptyState = document.getElementById("emptyState");
 
-  if (!patients.length) {
+  document.getElementById("resultCount").textContent =
+    allPatients.length ? `(${rows.length} of ${allPatients.length})` : "";
+
+  if (!rows.length) {
     tbody.innerHTML = "";
     emptyState.style.display = "block";
+    emptyState.textContent = allPatients.length
+      ? "No patients match this filter."
+      : 'No patients registered yet. Click "Register patient" to add one.';
     return;
   }
   emptyState.style.display = "none";
 
-  tbody.innerHTML = patients.map(p => `
+  tbody.innerHTML = rows.map(p => `
     <tr class="row-${p.status}">
       <td class="patient-name">
         <a href="/patient.html?id=${p.id}">${escapeHtml(p.name)}</a>
@@ -226,8 +379,55 @@ function renderPatientTable(patients) {
       <td>${formatVital(p.temperature, "°C")}</td>
       <td>${statusBadge(p.status)}</td>
       <td class="mono" style="font-size:12px; color:var(--ink-muted);">${timeAgo(p.last_reading_at)}</td>
+      <td>
+        <div class="row-actions">
+          <button onclick="editPatient(${p.id})">Edit</button>
+          <button class="danger" onclick="deletePatient(${p.id}, '${escapeHtml(p.name).replace(/'/g, "\\'")}')">Delete</button>
+        </div>
+      </td>
     </tr>
   `).join("");
+}
+
+function updateChipCounts(counts, patients) {
+  const offline = patients.filter(p => !p.is_online).length;
+  const map = {
+    all: counts.total, critical: counts.critical,
+    warning: counts.warning, normal: counts.normal, offline: offline,
+  };
+  document.querySelectorAll("#filterChips .chip").forEach(chip => {
+    const n = map[chip.dataset.filter];
+    const label = chip.dataset.filter.charAt(0).toUpperCase() + chip.dataset.filter.slice(1);
+    chip.innerHTML = `${label}<span class="count">${n ?? 0}</span>`;
+  });
+}
+
+function checkForNewCriticals(patients) {
+  const criticalNow = patients.filter(p => p.status === "critical");
+  const banner = document.getElementById("criticalBanner");
+
+  if (criticalNow.length) {
+    banner.classList.add("visible");
+    document.getElementById("criticalBannerText").textContent =
+      criticalNow.length === 1
+        ? `${criticalNow[0].name} is in CRITICAL status`
+        : `${criticalNow.length} patients are in CRITICAL status`;
+  } else {
+    banner.classList.remove("visible");
+  }
+
+  // Only notify about patients that weren't already critical last cycle,
+  // so a sustained critical state doesn't beep every 4 seconds.
+  if (!firstLoad) {
+    criticalNow.forEach(p => {
+      if (!knownCriticalIds.has(p.id)) {
+        showToast(`CRITICAL: ${p.name} — HR ${p.heart_rate ?? "—"}, SpO₂ ${p.spo2 ?? "—"}, ${p.temperature ?? "—"}°C`, "critical", 8000);
+        playAlertTone();
+      }
+    });
+  }
+  knownCriticalIds = new Set(criticalNow.map(p => p.id));
+  firstLoad = false;
 }
 
 function renderAlerts(alerts) {
@@ -236,7 +436,7 @@ function renderAlerts(alerts) {
     list.innerHTML = `<div class="empty-state">No alerts yet.</div>`;
     return;
   }
-  list.innerHTML = alerts.slice(0, 10).map(a => `
+  list.innerHTML = alerts.slice(0, 5).map(a => `
     <div class="alert-item ${a.acknowledged ? "acknowledged" : ""}">
       <span class="msg">${escapeHtml(a.message)}</span>
       <span class="time">${formatDateTime(a.created_at)}</span>
@@ -244,11 +444,50 @@ function renderAlerts(alerts) {
   `).join("");
 }
 
+async function loadThresholds() {
+  try {
+    const t = await apiRequest("/api/thresholds");
+    document.getElementById("thresholdGrid").innerHTML = `
+      <div class="threshold-item">
+        <div class="vital-name">Heart rate</div>
+        <div class="range-line"><span class="dot n"></span>Normal ${t.heart_rate.normal[0]}–${t.heart_rate.normal[1]} bpm</div>
+        <div class="range-line"><span class="dot w"></span>Warning ${t.heart_rate.warning[0]}–${t.heart_rate.warning[1]} bpm</div>
+        <div class="range-line"><span class="dot c"></span>Critical outside that range</div>
+      </div>
+      <div class="threshold-item">
+        <div class="vital-name">SpO₂</div>
+        <div class="range-line"><span class="dot n"></span>Normal ≥ ${t.spo2.normal_min}%</div>
+        <div class="range-line"><span class="dot w"></span>Warning ≥ ${t.spo2.warning_min}%</div>
+        <div class="range-line"><span class="dot c"></span>Critical below ${t.spo2.warning_min}%</div>
+      </div>
+      <div class="threshold-item">
+        <div class="vital-name">Temperature</div>
+        <div class="range-line"><span class="dot n"></span>Normal ${t.temperature.normal[0]}–${t.temperature.normal[1]} °C</div>
+        <div class="range-line"><span class="dot w"></span>Warning ${t.temperature.warning[0]}–${t.temperature.warning[1]} °C</div>
+        <div class="range-line"><span class="dot c"></span>Critical outside that range</div>
+      </div>
+    `;
+  } catch (err) {
+    console.error("Thresholds failed:", err);
+  }
+}
+
 async function refreshDashboard() {
+  if (paused) return;
   try {
     const dashboard = await apiRequest("/api/dashboard");
-    renderStats(dashboard.counts);
-    renderPatientTable(dashboard.patients);
+    const counts = dashboard.counts;
+
+    document.getElementById("statTotal").textContent = counts.total;
+    document.getElementById("statOnline").textContent = counts.online;
+    document.getElementById("statNormal").textContent = counts.normal;
+    document.getElementById("statWarning").textContent = counts.warning;
+    document.getElementById("statCritical").textContent = counts.critical;
+
+    allPatients = dashboard.patients;
+    updateChipCounts(counts, allPatients);
+    checkForNewCriticals(allPatients);
+    renderTable();
 
     const alerts = await apiRequest("/api/alerts");
     renderAlerts(alerts);
@@ -259,6 +498,7 @@ async function refreshDashboard() {
   }
 }
 
+loadThresholds();
 refreshDashboard();
 setInterval(refreshDashboard, POLL_INTERVAL_MS);
 </script>

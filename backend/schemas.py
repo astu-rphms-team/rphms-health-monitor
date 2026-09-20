@@ -84,3 +84,19 @@ class AlertOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ---------- AI assistant ----------
+
+class AiChatTurn(BaseModel):
+    role: str          # "user" or "assistant"
+    content: str
+
+
+class AiChatRequest(BaseModel):
+    message: str
+    history: Optional[list[AiChatTurn]] = None
+
+
+class AiChatResponse(BaseModel):
+    reply: str

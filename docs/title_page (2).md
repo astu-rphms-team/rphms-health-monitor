@@ -31,28 +31,18 @@ the Integrated Project Course*
 
 ## Project Overview
 
-The Integrated IoT-Based Remote Health Monitoring System (RPHMS) is a
-smart healthcare system designed to monitor patients remotely. It uses
-biomedical sensors to measure heart rate, body temperature, and oxygen
-saturation (SpO₂). An ESP32 microcontroller processes the sensor readings
-and transmits them over Wi-Fi to a backend server, where healthcare
-providers can view each patient's vital signs in real time through a web
-dashboard — with automatic status classification (normal/warning/critical)
-and Telegram alerts for critical readings.
+RPHMS monitors patients remotely using biomedical sensors measuring heart
+rate, body temperature, and blood oxygen saturation (SpO₂). An ESP32
+microcontroller processes the readings and transmits them over Wi-Fi to a
+backend server, where healthcare providers view live vital signs on a web
+dashboard with automatic status classification (normal / warning /
+critical), Telegram alerts on critical readings, and an AI assistant for
+querying ward status.
 
 ---
 
-**Advisor:** [Fill in advisor's name]
+**Advisor:** [Fill in]
 
-**Submission date:** [Fill in date]
+**Submission date:** [Fill in]
 
 **Academic year:** [Fill in]
-
----
-
-> *Note: fields in brackets above are placeholders — fill in your
-> advisor's name, submission date, and academic year before printing
-> this as your report's title page. Contact details for each member are
-> kept in the group's title-submission spreadsheet rather than duplicated
-> here, since phone numbers/emails aren't typically included on a report
-> title page — let the team know if you'd like them added.*

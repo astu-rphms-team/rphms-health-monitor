@@ -31,12 +31,26 @@
         <h1>Alerts</h1>
         <div class="subtitle">Critical readings across all patients</div>
       </div>
+      <div class="topbar-actions" id="topbarActions">
+        <button class="icon-btn wide" id="ackAllBtn">Acknowledge all</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Search alerts...">
+      </div>
+      <div class="filter-chips" id="filterChips">
+        <button class="chip active" data-filter="all">All</button>
+        <button class="chip" data-filter="unacknowledged">Unacknowledged</button>
+        <button class="chip" data-filter="acknowledged">Acknowledged</button>
+      </div>
     </div>
 
     <div class="panel">
       <div class="panel-header">
-        <h2>All alerts</h2>
-        <span class="subtitle" id="lastUpdated" style="font-size:12px; color:var(--ink-muted);"></span>
+        <h2>All alerts <span id="resultCount" style="font-weight:400; color:var(--ink-muted); font-size:12px;"></span></h2>
+        <span style="font-size:12px; color:var(--ink-muted);" id="lastUpdated"></span>
       </div>
       <div class="panel-body" id="alertsList">
         <div class="empty-state">Loading…</div>
@@ -47,19 +61,24 @@
 </div>
 
 <script src="/static/app.js"></script>
+<script src="/static/assistant.js"></script>
 <script>
 requireAuth();
 document.getElementById("userName").textContent = getUserName();
 document.getElementById("logoutBtn").addEventListener("click", logout);
+mountTopbarControls();
 
 const POLL_INTERVAL_MS = 4000;
-let patientNameCache = {};
+let patientCache = {};
+let allAlerts = [];
+let currentFilter = "all";
+let searchTerm = "";
 
 async function loadPatientNames() {
   try {
     const patients = await apiRequest("/api/patients");
-    patientNameCache = {};
-    patients.forEach(p => { patientNameCache[p.id] = p; });
+    patientCache = {};
+    patients.forEach(p => { patientCache[p.id] = p; });
   } catch (err) {
     console.error("Failed to load patients:", err);
   }
@@ -68,37 +87,93 @@ async function loadPatientNames() {
 async function acknowledgeAlert(alertId) {
   try {
     await apiRequest(`/api/alerts/${alertId}/acknowledge`, { method: "POST" });
+    showToast("Alert acknowledged", "success", 2000);
     await refreshAlerts();
   } catch (err) {
-    alert("Could not acknowledge alert: " + err.message);
+    showToast("Could not acknowledge: " + err.message, "error");
   }
 }
 window.acknowledgeAlert = acknowledgeAlert;
 
-function renderAlerts(alerts) {
+document.getElementById("ackAllBtn").addEventListener("click", async () => {
+  const pending = allAlerts.filter(a => !a.acknowledged);
+  if (!pending.length) {
+    showToast("Nothing to acknowledge", "info", 2000);
+    return;
+  }
+  if (!confirm(`Acknowledge all ${pending.length} open alert(s)?`)) return;
+
+  try {
+    await Promise.all(pending.map(a =>
+      apiRequest(`/api/alerts/${a.id}/acknowledge`, { method: "POST" })
+    ));
+    showToast(`${pending.length} alert(s) acknowledged`, "success");
+    await refreshAlerts();
+  } catch (err) {
+    showToast("Some alerts failed: " + err.message, "error");
+  }
+});
+
+document.getElementById("searchInput").addEventListener("input", (e) => {
+  searchTerm = e.target.value.toLowerCase();
+  renderAlerts();
+});
+
+document.getElementById("filterChips").addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (!chip) return;
+  document.querySelectorAll("#filterChips .chip").forEach(c => c.classList.remove("active"));
+  chip.classList.add("active");
+  currentFilter = chip.dataset.filter;
+  renderAlerts();
+});
+
+function updateChipCounts() {
+  const ack = allAlerts.filter(a => a.acknowledged).length;
+  const map = { all: allAlerts.length, unacknowledged: allAlerts.length - ack, acknowledged: ack };
+  document.querySelectorAll("#filterChips .chip").forEach(chip => {
+    const key = chip.dataset.filter;
+    const label = key === "all" ? "All" : key.charAt(0).toUpperCase() + key.slice(1);
+    chip.innerHTML = `${label}<span class="count">${map[key] ?? 0}</span>`;
+  });
+}
+
+function renderAlerts() {
+  let rows = allAlerts.slice();
+
+  if (currentFilter === "unacknowledged") rows = rows.filter(a => !a.acknowledged);
+  else if (currentFilter === "acknowledged") rows = rows.filter(a => a.acknowledged);
+
+  if (searchTerm) {
+    rows = rows.filter(a => {
+      const patient = patientCache[a.patient_id];
+      return (a.message || "").toLowerCase().includes(searchTerm) ||
+             (patient?.name || "").toLowerCase().includes(searchTerm);
+    });
+  }
+
+  document.getElementById("resultCount").textContent =
+    allAlerts.length ? `(${rows.length} of ${allAlerts.length})` : "";
+
   const list = document.getElementById("alertsList");
-  if (!alerts.length) {
-    list.innerHTML = `<div class="empty-state">No alerts yet.</div>`;
+  if (!rows.length) {
+    list.innerHTML = `<div class="empty-state">${allAlerts.length ? "No alerts match this filter." : "No alerts yet."}</div>`;
     return;
   }
 
-  list.innerHTML = alerts.map(a => {
-    const patient = patientNameCache[a.patient_id];
-    const patientLink = patient
-      ? `<a href="/patient.html?id=${patient.id}" style="font-weight:600; color:var(--ink); text-decoration:none;">${escapeHtml(patient.name)}</a>`
+  list.innerHTML = rows.map(a => {
+    const patient = patientCache[a.patient_id];
+    const link = patient
+      ? `<a href="/patient.html?id=${patient.id}" style="font-weight:600; color:var(--ink); text-decoration:none;">${escapeHtml(patient.name)}</a><br>`
       : "";
     return `
       <div class="alert-item ${a.acknowledged ? "acknowledged" : ""}" style="align-items:center;">
-        <div>
-          ${patientLink ? patientLink + "<br>" : ""}
-          <span class="msg">${escapeHtml(a.message)}</span>
-        </div>
+        <div>${link}<span class="msg">${escapeHtml(a.message)}</span></div>
         <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
           <span class="time">${formatDateTime(a.created_at)}</span>
           ${a.acknowledged
             ? `<span class="badge normal" style="animation:none;">Acknowledged</span>`
-            : `<button class="btn btn-small" onclick="acknowledgeAlert(${a.id})">Acknowledge</button>`
-          }
+            : `<button class="btn btn-small" onclick="acknowledgeAlert(${a.id})">Acknowledge</button>`}
         </div>
       </div>
     `;
@@ -107,20 +182,19 @@ function renderAlerts(alerts) {
 
 async function refreshAlerts() {
   try {
-    const alerts = await apiRequest("/api/alerts");
-    renderAlerts(alerts);
+    allAlerts = await apiRequest("/api/alerts");
+    updateChipCounts();
+    renderAlerts();
     document.getElementById("lastUpdated").textContent = "Updated " + new Date().toLocaleTimeString();
   } catch (err) {
     console.error("Failed to refresh alerts:", err);
   }
 }
 
-async function init() {
+(async function init() {
   await loadPatientNames();
   await refreshAlerts();
-}
-
-init();
+})();
 setInterval(refreshAlerts, POLL_INTERVAL_MS);
 </script>
 

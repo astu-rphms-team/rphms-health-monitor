@@ -11,8 +11,8 @@
 <div class="login-screen">
   <div class="login-card">
     <div class="brand">
-      <div class="mark">RP</div>
-      <h1>RPHMS</h1>
+      <div class="mark"><svg viewBox="0 0 24 24" fill="none"><path d="M3 12h4l2-7 4 14 2-7h6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <h1 class="display">RPHMS</h1>
       <p>Remote Patient Health Monitoring — provider sign in</p>
     </div>
 
@@ -38,7 +38,6 @@
 
 <script src="/static/app.js"></script>
 <script>
-  // If already logged in, skip straight to dashboard
   if (getToken()) {
     window.location.href = "/dashboard.html";
   }

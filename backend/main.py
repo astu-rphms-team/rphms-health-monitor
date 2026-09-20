@@ -9,16 +9,20 @@ Then open:
     http://localhost:8000/docs       -> interactive API docs (Swagger UI)
 """
 
+import json
+import csv
+import io
 from datetime import datetime, timedelta
+from pathlib import Path
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
 
 from database import Base, engine, get_db
 import models
@@ -26,6 +30,14 @@ import schemas
 import auth
 from thresholds import overall_status
 from telegram_alert import send_telegram_alert
+from ai_assistant import call_groq
+
+# Resolve all paths relative to this file's location (not the current
+# working directory), so the app works the same whether you run
+# "uvicorn main:app" from backend/, from the project root, or from
+# VS Code's run button.
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 
 # Create tables on startup (SQLite file created automatically if missing)
 Base.metadata.create_all(bind=engine)
@@ -245,12 +257,12 @@ def acknowledge_alert(
 
 # ---------------------------------------------------------------------------
 # Dashboard summary (drives the summary cards + patient table)
+#
+# Pulled out into a plain function (not just an inline route body) so the
+# AI assistant endpoint below can reuse the exact same live snapshot as
+# context, without duplicating this logic or hitting the API internally.
 # ---------------------------------------------------------------------------
-@app.get("/api/dashboard")
-def dashboard_summary(
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(auth.get_current_user),
-):
+def build_dashboard_summary(db: Session) -> dict:
     patients = db.query(models.Patient).filter(models.Patient.status == "active").all()
 
     counts = {"total": len(patients), "online": 0, "normal": 0, "warning": 0, "critical": 0}
@@ -285,33 +297,180 @@ def dashboard_summary(
             "spo2": latest.spo2 if latest else None,
             "temperature": latest.temperature if latest else None,
             "status": current_status,
-            "last_reading_at": latest.recorded_at if latest else None,
+            "last_reading_at": latest.recorded_at.isoformat() if latest else None,
         })
 
     return {"counts": counts, "patients": patient_rows}
 
 
+@app.get("/api/dashboard")
+def dashboard_summary(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    return build_dashboard_summary(db)
+
+
+# ---------------------------------------------------------------------------
+# Thresholds (read-only) - lets the frontend show the configured ranges
+# ---------------------------------------------------------------------------
+@app.get("/api/thresholds")
+def get_thresholds(current_user: models.User = Depends(auth.get_current_user)):
+    import thresholds as t
+    return {
+        "heart_rate": {
+            "normal": [t.HR_NORMAL_MIN, t.HR_NORMAL_MAX],
+            "warning": [t.HR_WARNING_MIN, t.HR_WARNING_MAX],
+            "unit": "bpm",
+        },
+        "spo2": {
+            "normal_min": t.SPO2_NORMAL_MIN,
+            "warning_min": t.SPO2_WARNING_MIN,
+            "unit": "%",
+        },
+        "temperature": {
+            "normal": [t.TEMP_NORMAL_MIN, t.TEMP_NORMAL_MAX],
+            "warning": [t.TEMP_WARNING_MIN, t.TEMP_WARNING_MAX],
+            "unit": "C",
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Patient statistics - min/max/average per vital, for the detail page
+# ---------------------------------------------------------------------------
+@app.get("/api/patients/{patient_id}/stats")
+def get_patient_stats(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    vitals = db.query(models.Vital).filter(models.Vital.patient_id == patient_id).all()
+    if not vitals:
+        return {"reading_count": 0}
+
+    def summarise(values):
+        values = [v for v in values if v is not None]
+        if not values:
+            return None
+        return {
+            "min": round(min(values), 1),
+            "max": round(max(values), 1),
+            "avg": round(sum(values) / len(values), 1),
+        }
+
+    return {
+        "reading_count": len(vitals),
+        "heart_rate": summarise([v.heart_rate for v in vitals]),
+        "spo2": summarise([v.spo2 for v in vitals]),
+        "temperature": summarise([v.temperature for v in vitals]),
+        "critical_count": sum(1 for v in vitals if v.status == "critical"),
+        "warning_count": sum(1 for v in vitals if v.status == "warning"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# CSV export of a patient's readings
+# ---------------------------------------------------------------------------
+@app.get("/api/patients/{patient_id}/export")
+def export_patient_vitals(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    patient = db.query(models.Patient).filter(models.Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    vitals = (
+        db.query(models.Vital)
+        .filter(models.Vital.patient_id == patient_id)
+        .order_by(models.Vital.recorded_at)
+        .all()
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["recorded_at", "heart_rate_bpm", "spo2_percent", "temperature_c", "status"])
+    for v in vitals:
+        writer.writerow([
+            v.recorded_at.isoformat() if v.recorded_at else "",
+            v.heart_rate, v.spo2, v.temperature, v.status,
+        ])
+
+    safe_name = "".join(c for c in patient.name if c.isalnum() or c in " -_").strip().replace(" ", "_")
+    filename = f"rphms_{safe_name or patient_id}_vitals.csv"
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# AI assistant (Groq) - the API key stays server-side, never in the browser
+# ---------------------------------------------------------------------------
+@app.post("/api/ai/chat", response_model=schemas.AiChatResponse)
+def ai_chat(
+    payload: schemas.AiChatRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    # Build a live snapshot of the dashboard so the assistant can answer
+    # questions about the actual patients on screen.
+    dashboard = build_dashboard_summary(db)
+    counts = dashboard["counts"]
+
+    lines = [
+        f"Totals - patients: {counts['total']}, online: {counts['online']}, "
+        f"normal: {counts['normal']}, warning: {counts['warning']}, critical: {counts['critical']}",
+        "Patients:",
+    ]
+    if not dashboard["patients"]:
+        lines.append("  (none registered yet)")
+    for p in dashboard["patients"]:
+        lines.append(
+            f"  - {p['name']} (room {p['room_no'] or 'n/a'}, device {p['device_id']}, "
+            f"{'online' if p['is_online'] else 'offline'}): HR={p['heart_rate']}, "
+            f"SpO2={p['spo2']}, Temp={p['temperature']}, status={p['status']}"
+        )
+
+    recent_alerts = (
+        db.query(models.Alert).order_by(desc(models.Alert.created_at)).limit(5).all()
+    )
+    if recent_alerts:
+        lines.append("Recent alerts:")
+        for a in recent_alerts:
+            lines.append(f"  - {a.message} ({'acknowledged' if a.acknowledged else 'unacknowledged'})")
+
+    history = [{"role": h.role, "content": h.content} for h in (payload.history or [])]
+    reply = call_groq(payload.message, "\n".join(lines), history)
+
+    return schemas.AiChatResponse(reply=reply)
+
+
 # ---------------------------------------------------------------------------
 # Serve the plain HTML/CSS/JS frontend from backend/static
 # ---------------------------------------------------------------------------
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/")
 def serve_login_page():
-    return FileResponse("static/login.html")
+    return FileResponse(str(STATIC_DIR / "login.html"))
 
 
 @app.get("/dashboard.html")
 def serve_dashboard_page():
-    return FileResponse("static/dashboard.html")
+    return FileResponse(str(STATIC_DIR / "dashboard.html"))
 
 
 @app.get("/patient.html")
 def serve_patient_page():
-    return FileResponse("static/patient.html")
+    return FileResponse(str(STATIC_DIR / "patient.html"))
 
 
 @app.get("/alerts.html")
 def serve_alerts_page():
-    return FileResponse("static/alerts.html")
+    return FileResponse(str(STATIC_DIR / "alerts.html"))
